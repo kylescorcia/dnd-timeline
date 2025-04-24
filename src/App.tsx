@@ -276,8 +276,10 @@ function App() {
 					const newStart = overlappingItem.span.start + (overlap.isLeft ? overlap.size : -overlap.size);
 					const newEnd = overlappingItem.span.end + (overlap.isLeft ? overlap.size : -overlap.size);
 
-					// If the move would take the item out of bounds, we can't move it
-					if (newStart < range.start || newEnd > range.end) {
+					// If the move would take the item out of bounds or create a subrow, we can't move it
+					if (newStart < range.start || newEnd > range.end || 
+						// Check if this would create a subrow by seeing if it would overlap with any other items
+						findOverlappingItems(newItems, { ...overlappingItem, span: { start: newStart, end: newEnd } }, activeRowId).length > 0) {
 						canMove = false;
 						return;
 					}
@@ -308,7 +310,7 @@ function App() {
 			if (canMove) {
 				setItems(newItems);
 			} else {
-				// If we can't move items without going out of bounds, cancel the drag
+				// If we can't move items without going out of bounds or creating subrows, cancel the drag
 				setItems((prev) =>
 					prev.map((item) => {
 						if (item.id !== activeItemId) return item;
