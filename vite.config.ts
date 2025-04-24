@@ -3,9 +3,9 @@ import { defineConfig } from "vite";
 
 export default defineConfig({
 	plugins: [react()],
-	// server: {
-	// 	headers: {
-	// 		'Content-Type': 'application/javascript'
-	// 	}
-	// }
+	server: {
+		headers: {
+			'Content-Type': 'application/javascript'
+		}
+	}
 });
