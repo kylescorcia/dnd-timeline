@@ -1,11 +1,12 @@
 import "./index.css";
 import { endOfDay, startOfDay } from "date-fns";
-import type { DragEndEvent, DragMoveEvent, Range, ResizeEndEvent, Span } from "dnd-timeline";
+import type { DragEndEvent, DragMoveEvent, Range, ResizeEndEvent, Span, ItemDefinition } from "dnd-timeline";
 import { TimelineContext } from "dnd-timeline";
 import { nanoid } from "nanoid";
 import { useCallback, useState, useRef } from "react";
 import Timeline from "./Timeline";
 import { generateItems, generateRows } from "./utils";
+import type { ExtendedItemDefinition } from "./types";
 
 const DEFAULT_RANGE: Range = {
 	start: startOfDay(new Date()).getTime(),
@@ -93,10 +94,18 @@ const calculatePreviewPositions = (items: any[], draggedItem: any, range: Range,
 	return previewPositions;
 };
 
+// Remove TimelineItem interface
+// interface TimelineItem {
+//     id: string;
+//     rowId: string;
+//     subrowLevel: number;
+//     span: Span;
+// }
+
 function App() {
 	const [range, setRange] = useState(DEFAULT_RANGE);
 	const [rows] = useState(generateRows(5));
-	const [items, setItems] = useState(generateItems(10, range, rows));
+	const [items, setItems] = useState<ExtendedItemDefinition[]>(generateItems(10, range, rows));
 	const [previewPositions, setPreviewPositions] = useState<Map<string, Span>>(new Map());
 	const dragStartPosition = useRef<{ cursor: number; span: Span } | null>(null);
 
@@ -252,8 +261,11 @@ function App() {
 		const activeItem = items.find((item) => item.id === activeItemId);
 		if (!activeItem) return;
 
+		// Get all items in the target row
+		const targetRowItems = items.filter(item => item.rowId === activeRowId);
+
 		// Find overlapping items in the target row
-		const overlappingItems = findOverlappingItems(items, {
+		const overlappingItems = findOverlappingItems(targetRowItems, {
 			...activeItem,
 			rowId: activeRowId,
 			span: updatedSpan,
@@ -263,6 +275,28 @@ function App() {
 			const newItems = [...items];
 			const processedItems = new Set<string>();
 			let canMove = true;
+
+			// Calculate subrow levels for all items in the target row
+			const calculateSubrowLevels = (items: ItemDefinition[]) => {
+				const sortedItems = [...items].sort((a, b) => a.span.start - b.span.start);
+				const subrowLevels = new Map<string, number>();
+				
+				sortedItems.forEach(item => {
+					let level = 0;
+					while (true) {
+						const itemsInLevel = sortedItems.filter(i => 
+							subrowLevels.get(i.id) === level && 
+							i.id !== item.id &&
+							doSpansOverlap(i.span, item.span)
+						);
+						if (itemsInLevel.length === 0) break;
+						level++;
+					}
+					subrowLevels.set(item.id, level);
+				});
+				
+				return subrowLevels;
+			};
 
 			const processItem = (item: any) => {
 				if (processedItems.has(item.id)) return;
@@ -276,13 +310,11 @@ function App() {
 					const newStart = overlappingItem.span.start + (overlap.isLeft ? overlap.size : -overlap.size);
 					const newEnd = overlappingItem.span.end + (overlap.isLeft ? overlap.size : -overlap.size);
 
-					// Only check for out of bounds, not for subrows
 					if (newStart < range.start || newEnd > range.end) {
 						canMove = false;
 						return;
 					}
 
-					// Update the item's position
 					const itemIndex = newItems.findIndex(i => i.id === overlappingItem.id);
 					if (itemIndex !== -1) {
 						newItems[itemIndex] = {
@@ -306,9 +338,20 @@ function App() {
 			}
 
 			if (canMove) {
-				setItems(newItems);
+				// Calculate new subrow levels for all items in the target row
+				const subrowLevels = calculateSubrowLevels(newItems.filter(item => item.rowId === activeRowId));
+				
+				// Update items with their new subrow levels
+				setItems(newItems.map(item => {
+					if (item.rowId === activeRowId) {
+						return {
+							...item,
+							subrowLevel: subrowLevels.get(item.id) || 0
+						};
+					}
+					return item;
+				}));
 			} else {
-				// If we can't move items without going out of bounds, cancel the drag
 				setItems((prev) =>
 					prev.map((item) => {
 						if (item.id !== activeItemId) return item;
@@ -328,12 +371,12 @@ function App() {
 						...item,
 						rowId: activeRowId,
 						span: updatedSpan,
+						subrowLevel: 0  // Default to subrow 0 if no overlaps
 					};
 				})
 			);
 		}
 
-		// Clear preview positions and drag start position after drag ends
 		setPreviewPositions(new Map());
 		dragStartPosition.current = null;
 	}, [items, range]);
